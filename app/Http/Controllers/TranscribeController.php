@@ -114,24 +114,64 @@ class TranscribeController extends Controller
             'end_time' => 'required|numeric|min:0',
         ]);
 
-        $file = $request->file('file');
-        $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
-        $file->storeAs('audio-chunks', $filename);
+        try {
+            $file = $request->file('file');
 
-        $chunk = $session->audioChunks()->create([
-            'filename' => $filename,
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
-            'uploaded_at' => now(),
-        ]);
+            // Get extension from original filename or default to webm
+            $extension = $file->getClientOriginalExtension() ?: 'webm';
+            $filename = Str::uuid() . '.' . $extension;
 
-        // Dispatch job to process this chunk
-        ProcessAudioChunk::dispatch($chunk);
+            \Log::info('Uploading audio chunk', [
+                'session_id' => $session->id,
+                'filename' => $filename,
+                'size' => $file->getSize(),
+                'mime' => $file->getMimeType(),
+            ]);
 
-        return response()->json([
-            'chunk_id' => $chunk->id,
-            'status' => 'processing',
-        ]);
+            // Store the file and verify it was saved
+            $path = $file->storeAs('audio-chunks', $filename);
+
+            if (!$path) {
+                throw new \Exception('Failed to store audio file');
+            }
+
+            $fullPath = storage_path('app/' . $path);
+
+            if (!file_exists($fullPath)) {
+                throw new \Exception('Audio file was not saved to disk: ' . $fullPath);
+            }
+
+            \Log::info('Audio chunk saved successfully', [
+                'path' => $fullPath,
+                'size' => filesize($fullPath),
+            ]);
+
+            $chunk = $session->audioChunks()->create([
+                'filename' => $filename,
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
+                'uploaded_at' => now(),
+            ]);
+
+            // Dispatch job to process this chunk
+            ProcessAudioChunk::dispatch($chunk);
+
+            return response()->json([
+                'chunk_id' => $chunk->id,
+                'status' => 'processing',
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to upload audio chunk', [
+                'session_id' => $session->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to upload audio chunk',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

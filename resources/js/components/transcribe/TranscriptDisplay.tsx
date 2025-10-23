@@ -33,6 +33,13 @@ export function TranscriptDisplay({
         word: Word;
     } | null>(null);
 
+    // Debug logging
+    console.log('TranscriptDisplay render:', {
+        textLength: text?.length || 0,
+        textPreview: text ? text.substring(0, 50) : 'empty',
+        hasText: !!text
+    });
+
     const copyToClipboard = async () => {
         try {
             await navigator.clipboard.writeText(text);

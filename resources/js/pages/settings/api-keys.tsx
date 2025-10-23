@@ -1,9 +1,10 @@
-import SettingsLayout from '@/layouts/settings/settings-layout';
+import AppLayout from '@/layouts/app-layout';
+import SettingsLayout from '@/layouts/settings/layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useForm } from '@inertiajs/react';
+import { Head, useForm } from '@inertiajs/react';
 import { Eye, EyeOff, Save } from 'lucide-react';
 import { useState } from 'react';
 
@@ -35,7 +36,10 @@ export default function ApiKeys({ apiKeys }: Props) {
     };
 
     return (
-        <form onSubmit={submit} className="space-y-6">
+        <AppLayout>
+            <Head title="API Keys - Settings" />
+            <SettingsLayout>
+                <form onSubmit={submit} className="space-y-6">
             <Card>
                 <CardHeader>
                     <CardTitle>API Keys</CardTitle>
@@ -163,13 +167,8 @@ export default function ApiKeys({ apiKeys }: Props) {
                     {processing ? 'Saving...' : 'Save API Keys'}
                 </Button>
             </div>
-        </form>
+                </form>
+            </SettingsLayout>
+        </AppLayout>
     );
 }
-
-ApiKeys.layout = (page: React.ReactNode) => (
-    <SettingsLayout
-        title="API Keys"
-        children={page}
-    />
-);

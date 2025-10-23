@@ -1,4 +1,4 @@
-import AppLayout from '@/layouts/app/app-layout';
+import AppLayout from '@/layouts/app-layout';
 import { TranscriptDisplay } from '@/components/transcribe/TranscriptDisplay';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Link, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -169,7 +169,9 @@ export default function Show({ session }: Props) {
     const statusInfo = statusConfig[session.status];
 
     return (
-        <div className="space-y-6">
+        <AppLayout>
+            <Head title={session.title} />
+            <div className="space-y-6">
             {/* Header */}
             <div className="flex items-start justify-between">
                 <div className="space-y-1">
@@ -243,13 +245,7 @@ export default function Show({ session }: Props) {
                     </p>
                 </div>
             )}
-        </div>
+            </div>
+        </AppLayout>
     );
 }
-
-Show.layout = (page: React.ReactNode) => (
-    <AppLayout
-        title="Session Details"
-        children={page}
-    />
-);

@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { router } from '@inertiajs/react';
 import { Mic, Pause, Square } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import axios from '@/lib/axios';
 
 interface AudioRecorderProps {
     sessionId: number | null;
@@ -25,6 +26,13 @@ export function AudioRecorder({
     const startTimeRef = useRef<number>(0);
     const currentChunkStartRef = useRef<number>(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const sessionIdRef = useRef<number | null>(sessionId);
+
+    // Keep sessionIdRef in sync with sessionId prop
+    useEffect(() => {
+        sessionIdRef.current = sessionId;
+        console.log('sessionId updated:', sessionId);
+    }, [sessionId]);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -61,12 +69,31 @@ export function AudioRecorder({
 
             // Handle data available (chunk ready)
             mediaRecorder.ondataavailable = async (event) => {
+                const currentSessionId = sessionIdRef.current;
+                console.log('MediaRecorder data available:', {
+                    size: event.data.size,
+                    type: event.data.type,
+                    sessionId: currentSessionId
+                });
+
+                if (!currentSessionId) {
+                    console.error('Session ID not available when chunk ready');
+                    return;
+                }
+
                 if (event.data.size > 0) {
                     chunksRef.current.push(event.data);
 
                     // Upload chunk to backend
                     const blob = event.data;
                     const chunkEnd = (Date.now() - startTimeRef.current) / 1000;
+
+                    console.log('Uploading chunk:', {
+                        size: blob.size,
+                        startTime: currentChunkStartRef.current,
+                        endTime: chunkEnd,
+                        sessionId: currentSessionId
+                    });
 
                     await uploadChunk(
                         blob,
@@ -75,11 +102,19 @@ export function AudioRecorder({
                     );
 
                     currentChunkStartRef.current = chunkEnd;
+                } else {
+                    console.warn('MediaRecorder data available but size is 0');
                 }
             };
 
             // Start recording with 10-second chunks
+            console.log('Starting MediaRecorder with 10-second chunks', {
+                sessionIdProp: sessionId,
+                sessionIdRef: sessionIdRef.current
+            });
             mediaRecorder.start(10000);
+
+            console.log('MediaRecorder started, state:', mediaRecorder.state);
 
             setIsRecording(true);
             setIsPaused(false);
@@ -139,47 +174,97 @@ export function AudioRecorder({
         startTime: number,
         endTime: number,
     ) => {
-        if (!sessionId) return;
+        if (!sessionId) {
+            console.error('Cannot upload chunk: sessionId is null');
+            setError('Recording session not initialized. Please try again.');
+            return;
+        }
+
+        console.log('uploadChunk called with sessionId:', sessionId);
 
         const formData = new FormData();
         formData.append('file', blob, 'chunk.webm');
         formData.append('start_time', startTime.toString());
         formData.append('end_time', endTime.toString());
 
+        console.log('FormData created:', {
+            fileSize: blob.size,
+            startTime,
+            endTime,
+            fileName: 'chunk.webm'
+        });
+
         try {
-            const response = await fetch(
-                `/transcribe/sessions/${sessionId}/chunks`,
-                {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'X-CSRF-TOKEN':
-                            document
-                                .querySelector('meta[name="csrf-token"]')
-                                ?.getAttribute('content') || '',
-                    },
-                },
+            // Let axios automatically set Content-Type with boundary for FormData
+            const response = await axios.post(
+                `/api/transcribe/sessions/${sessionId}/chunks`,
+                formData
             );
 
-            if (!response.ok) {
-                throw new Error('Failed to upload chunk');
-            }
+            console.log('Chunk uploaded successfully:', response.data);
 
-            // Poll for transcript update
-            setTimeout(() => pollTranscript(), 2000);
-        } catch (err) {
+            // Poll for transcript update with retry logic
+            startPollingForTranscript();
+        } catch (err: any) {
             console.error('Error uploading chunk:', err);
+            const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Failed to upload audio chunk';
+            console.error('Full error response:', err.response?.data);
+            setError(`Upload failed: ${errorMessage}`);
         }
+    };
+
+    const startPollingForTranscript = () => {
+        let pollAttempts = 0;
+        const maxAttempts = 10; // Poll for up to 30 seconds (10 attempts * 3 seconds)
+
+        const poll = async () => {
+            if (!sessionId || pollAttempts >= maxAttempts) return;
+
+            try {
+                const response = await axios.get(
+                    `/api/transcribe/sessions/${sessionId}/transcript`
+                );
+                const data = response.data;
+
+                console.log('Poll response:', data);
+
+                if (data.partials && data.partials.length > 0) {
+                    const fullText = data.partials
+                        .map((p: any) => p.text)
+                        .join(' ');
+                    console.log('Updating transcript with text:', fullText.substring(0, 50) + '...', 'Full length:', fullText.length);
+                    onTranscriptUpdate(fullText);
+                    console.log('Transcript updated successfully');
+                } else {
+                    console.log('No partials found, retrying...');
+                    // No transcript yet, try again
+                    pollAttempts++;
+                    if (pollAttempts < maxAttempts) {
+                        setTimeout(poll, 3000); // Poll every 3 seconds
+                    }
+                }
+            } catch (err: any) {
+                console.error('Error polling transcript:', err);
+                // Retry on error
+                pollAttempts++;
+                if (pollAttempts < maxAttempts) {
+                    setTimeout(poll, 3000);
+                }
+            }
+        };
+
+        // Start polling after 3 seconds (give the queue worker time to start)
+        setTimeout(poll, 3000);
     };
 
     const pollTranscript = async () => {
         if (!sessionId) return;
 
         try {
-            const response = await fetch(
-                `/transcribe/sessions/${sessionId}/transcript`,
+            const response = await axios.get(
+                `/api/transcribe/sessions/${sessionId}/transcript`
             );
-            const data = await response.json();
+            const data = response.data;
 
             if (data.partials && data.partials.length > 0) {
                 const fullText = data.partials
@@ -187,7 +272,7 @@ export function AudioRecorder({
                     .join(' ');
                 onTranscriptUpdate(fullText);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error polling transcript:', err);
         }
     };
@@ -196,30 +281,30 @@ export function AudioRecorder({
         if (!sessionId) {
             // Create session first
             try {
-                const response = await fetch('/transcribe/sessions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN':
-                            document
-                                .querySelector('meta[name="csrf-token"]')
-                                ?.getAttribute('content') || '',
-                    },
-                    body: JSON.stringify({
-                        title: `Recording ${new Date().toLocaleString()}`,
-                    }),
+                console.log('Creating new session...');
+                const response = await axios.post('/api/transcribe/sessions', {
+                    title: `Recording ${new Date().toLocaleString()}`,
                 });
 
-                const data = await response.json();
-                onSessionCreated(data.session_id);
+                const newSessionId = response.data.session_id;
+                console.log('Session created:', newSessionId);
 
-                // Start recording after session created
-                setTimeout(startRecording, 100);
-            } catch (err) {
+                onSessionCreated(newSessionId);
+
+                // Wait for state to update, then start recording
+                // Note: We need to wait for the sessionId prop to update from parent
+                console.log('Waiting for sessionId to be set...');
+                setTimeout(() => {
+                    console.log('Starting recording after session creation...');
+                    startRecording();
+                }, 200);
+            } catch (err: any) {
                 console.error('Error creating session:', err);
-                setError('Failed to create recording session');
+                const errorMessage = err.response?.data?.message || 'Failed to create recording session';
+                setError(errorMessage);
             }
         } else {
+            console.log('Session already exists, starting recording...');
             await startRecording();
         }
     };

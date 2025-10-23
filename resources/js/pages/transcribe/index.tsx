@@ -1,8 +1,8 @@
-import AppLayout from '@/layouts/app/app-layout';
+import AppLayout from '@/layouts/app-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Link } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { FileText, Mic, Plus } from 'lucide-react';
 
 interface Session {
@@ -48,7 +48,9 @@ export default function Index({ sessions }: Props) {
     };
 
     return (
-        <div className="space-y-6">
+        <AppLayout>
+            <Head title="Transcriptions" />
+            <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -139,13 +141,7 @@ export default function Index({ sessions }: Props) {
                     })}
                 </div>
             )}
-        </div>
+            </div>
+        </AppLayout>
     );
 }
-
-Index.layout = (page: React.ReactNode) => (
-    <AppLayout
-        title="Transcriptions"
-        children={page}
-    />
-);

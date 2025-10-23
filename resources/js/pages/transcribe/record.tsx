@@ -1,11 +1,12 @@
-import AppLayout from '@/layouts/app/app-layout';
+import AppLayout from '@/layouts/app-layout';
 import { AudioRecorder } from '@/components/transcribe/AudioRecorder';
 import { TranscriptDisplay } from '@/components/transcribe/TranscriptDisplay';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Link, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
+import axios from '@/lib/axios';
 
 export default function Record() {
     const [sessionId, setSessionId] = useState<number | null>(null);
@@ -13,47 +14,44 @@ export default function Record() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [sessionTitle, setSessionTitle] = useState('');
 
+    const handleTranscriptUpdate = (text: string) => {
+        console.log('Record page: received transcript update, length:', text.length, 'preview:', text.substring(0, 50));
+        setTranscript(text);
+        console.log('Record page: state updated');
+    };
+
     const handleFinalize = async () => {
         if (!sessionId) return;
 
         setIsProcessing(true);
 
         try {
-            const response = await fetch(
-                `/transcribe/sessions/${sessionId}/finalize`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN':
-                            document
-                                .querySelector('meta[name="csrf-token"]')
-                                ?.getAttribute('content') || '',
-                    },
-                },
-            );
+            await axios.post(`/api/transcribe/sessions/${sessionId}/finalize`);
 
-            if (response.ok) {
-                // Poll for the final transcript
-                const pollInterval = setInterval(async () => {
-                    const transcriptResponse = await fetch(
-                        `/transcribe/sessions/${sessionId}/transcript`,
+            // Poll for the final transcript
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await axios.get(
+                        `/api/transcribe/sessions/${sessionId}/transcript`
                     );
-                    const data = await transcriptResponse.json();
+                    const data = response.data;
 
                     if (data.final) {
                         setTranscript(data.final.text);
                         setIsProcessing(false);
                         clearInterval(pollInterval);
                     }
-                }, 3000);
+                } catch (err: any) {
+                    console.error('Error polling for final transcript:', err);
+                }
+            }, 3000);
 
-                // Stop polling after 2 minutes
-                setTimeout(() => {
-                    clearInterval(pollInterval);
-                    setIsProcessing(false);
-                }, 120000);
-            }
-        } catch (err) {
+            // Stop polling after 2 minutes
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                setIsProcessing(false);
+            }, 120000);
+        } catch (err: any) {
             console.error('Error finalizing transcript:', err);
             setIsProcessing(false);
         }
@@ -67,7 +65,9 @@ export default function Record() {
     };
 
     return (
-        <div className="space-y-6">
+        <AppLayout>
+            <Head title="Record Session" />
+            <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -105,7 +105,7 @@ export default function Record() {
                     <AudioRecorder
                         sessionId={sessionId}
                         onSessionCreated={setSessionId}
-                        onTranscriptUpdate={setTranscript}
+                        onTranscriptUpdate={handleTranscriptUpdate}
                     />
                 </div>
             </div>
@@ -151,13 +151,7 @@ export default function Record() {
                     </ol>
                 </div>
             )}
-        </div>
+            </div>
+        </AppLayout>
     );
 }
-
-Record.layout = (page: React.ReactNode) => (
-    <AppLayout
-        title="Record Session"
-        children={page}
-    />
-);
