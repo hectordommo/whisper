@@ -25,4 +25,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('settings/two-factor', [TwoFactorAuthenticationController::class, 'show'])
         ->name('two-factor.show');
+
+    Route::get('settings/api-keys', [ProfileController::class, 'editApiKeys'])->name('api-keys.edit');
+    Route::patch('settings/api-keys', [ProfileController::class, 'updateApiKeys'])->name('api-keys.update');
 });

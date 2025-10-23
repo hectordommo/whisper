@@ -60,4 +60,46 @@ class ProfileController extends Controller
 
         return redirect('/');
     }
+
+    /**
+     * Show the API keys settings page.
+     */
+    public function editApiKeys(Request $request): Response
+    {
+        $apiKeys = $request->user()->api_keys ?? [];
+
+        return Inertia::render('settings/api-keys', [
+            'apiKeys' => [
+                'openai' => $apiKeys['openai'] ?? null,
+                'anthropic' => $apiKeys['anthropic'] ?? null,
+            ],
+        ]);
+    }
+
+    /**
+     * Update the user's API keys.
+     */
+    public function updateApiKeys(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'openai_api_key' => 'nullable|string',
+            'anthropic_api_key' => 'nullable|string',
+        ]);
+
+        $apiKeys = $request->user()->api_keys ?? [];
+
+        if (!empty($validated['openai_api_key'])) {
+            $apiKeys['openai'] = $validated['openai_api_key'];
+        }
+
+        if (!empty($validated['anthropic_api_key'])) {
+            $apiKeys['anthropic'] = $validated['anthropic_api_key'];
+        }
+
+        $request->user()->update([
+            'api_keys' => $apiKeys,
+        ]);
+
+        return to_route('api-keys.edit')->with('status', 'api-keys-updated');
+    }
 }

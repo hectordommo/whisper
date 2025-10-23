@@ -135,3 +135,67 @@ Copy `.env.example` to `.env` and configure:
 - Database connection (default: SQLite)
 - Mail settings for authentication emails
 - App name, URL, and environment settings
+- **Transcription API Keys**: `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
+
+## Transcription Application
+
+The app includes a full-featured audio transcription system with real-time ASR and AI polish.
+
+### Architecture Overview
+
+**Flow**: User records audio → Chunks uploaded every 10s → Whisper API transcribes → Partial transcripts shown → User requests polish → Claude AI edits → Final transcript with uncertainty markers
+
+**Key Components**:
+
+**Backend (`app/`)**:
+- `Models/DictationSession` - Recording session (status: recording/processing/ready)
+- `Models/AudioChunk` - 10-second audio chunks stored in `storage/app/audio-chunks/`
+- `Models/Transcript` - Three types: `asr_partial`, `asr_final`, `llm_final`
+- `Services/WhisperService` - OpenAI Whisper API integration with word-level timestamps
+- `Services/ClaudeService` - Anthropic Claude for Spanish (Mexico) transcript polishing
+- `Jobs/ProcessAudioChunk` - Background job for ASR (retry with exponential backoff)
+- `Jobs/FinalizeTranscript` - Background job for LLM polish
+- `Http/Controllers/TranscribeController` - 9 endpoints for CRUD, chunk upload, finalize
+- `Console/Commands/CleanupOldAudio` - Delete chunks >24h old (scheduled daily at 3 AM)
+
+**Frontend (`resources/js/`)**:
+- `pages/transcribe/index.tsx` - Session list with status badges
+- `pages/transcribe/record.tsx` - Recording page with MediaRecorder
+- `pages/transcribe/show.tsx` - Session detail with transcript view
+- `components/transcribe/AudioRecorder.tsx` - 10s chunked recording with pause/resume
+- `components/transcribe/TranscriptDisplay.tsx` - Uncertain words underlined (clickable for alternatives)
+- `pages/settings/api-keys.tsx` - Encrypted API key management
+
+**Routes**:
+- `GET /transcribe` - Session list
+- `GET /transcribe/record` - New recording
+- `POST /transcribe/sessions` - Create session
+- `POST /transcribe/sessions/{id}/chunks` - Upload audio chunk
+- `GET /transcribe/sessions/{id}/transcript` - Get latest transcript
+- `POST /transcribe/sessions/{id}/finalize` - Request LLM polish
+- `POST /transcribe/sessions/{id}/accept-word` - Accept word alternative
+
+### Data Flow
+
+1. **Recording**: MediaRecorder captures 10s chunks → uploaded to backend → stored in `storage/app/audio-chunks/`
+2. **ASR**: `ProcessAudioChunk` job → Whisper API → word-level confidence + timestamps → stored as `asr_partial`
+3. **Display**: Frontend polls `/transcript` endpoint every 5s → appends new partial transcripts
+4. **Polish**: User clicks "Polish" → `FinalizeTranscript` job → aggregates partials → Claude API with Spanish (Mexico) prompt → stored as `llm_final`
+5. **Uncertainty**: Words with confidence <0.7 shown underlined → click to see alternatives → accept to update transcript
+
+### Key Features
+
+- **5-minute max recording** with pause/resume
+- **Real-time transcription** (10s chunk cadence)
+- **Uncertain word detection** (<0.7 confidence threshold)
+- **LLM polish on demand** (conservative, preserves spoken voice)
+- **Audio auto-deletion** after 24 hours (text kept forever)
+- **Encrypted API keys** stored per-user in `users.api_keys` JSON column
+
+### Development Notes
+
+- Queue worker required: `php artisan queue:work`
+- Cron scheduler for cleanup: `php artisan schedule:work` (or add to system crontab)
+- Test with: Record 30s → verify partial transcripts update → click Polish → verify final transcript
+- MediaRecorder uses `audio/webm` or `audio/mp4` depending on browser support
+- API keys must be configured in Settings → API Keys before recording
